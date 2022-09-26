@@ -10,7 +10,17 @@ if (!require("TCGAbiolinks", quietly = TRUE))
 
 library(TCGAbiolinks)
   
+if (!require("ggplot2", quietly = TRUE)) 
+  install.packages("ggplot2") 
+  
 library(ggplot2)
+  
+if (!require("dplyr", quietly = TRUE)) 
+  install.packages("dplyr") # notice this is different from the typical "install.packages" command. that's because BiocManager is necessary to install and manage packages from the Bioconductor project
+
+library(dplyr)
+  
+
 
 
 #set working directory
@@ -19,7 +29,7 @@ setwd("/Users/hiradh/Desktop/qbio_490_hirad_hosseini/week5_more_clinical/analysi
 knitr::opts_knit$set(root.dir = normalizePath("../analysis_data")) 
 
 #read in data
-clinical <- read.csv("../week4_clinical/week4_hw/brca_clinical_data.csv")
+clinical <- read.csv("/Users/hiradh/Desktop/qbio_490_hirad_hosseini/week4_clinical/week4_hw/brca_clinical_data.csv")
 clinical_query <- GDCquery(project="TCGA-BRCA", data.category="Clinical", file.type="xml")
 clinical.drug <- GDCprepare_clinic(query = clinical_query, clinical.info = "drug")
 clinical.rad <- GDCprepare_clinic(query = clinical_query, clinical.info = "radiation")
