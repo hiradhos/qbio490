@@ -1,0 +1,275 @@
+---
+title: "MAF Tutorial"
+author: Nicole Black
+date: 08/03/22
+---
+
+*/ IMPORTANT: You must query, download, and prepare the RNAseq data before Monday's meeting (see directions in part 8 of this notebook). Allot 15-20 minutes for the download depending on your laptop's processing power. If you encounter any issues, you must slack Nicole/TAs before Sunday night so we can troubleshoot prior to class time. /*
+
+###### (1) Set Up
+
+Set your working environment to analysis_data:
+
+```{r setup}
+    getwd()
+    setwd("/Users/hiradh/Desktop/qbio_490_hirad_hosseini/week5_more_clinical/analysis_data/")
+    knitr::opts_knit$set(root.dir = normalizePath("/Users/hiradh/Desktop/qbio_490_hirad_hosseini/week5_more_clinical/analysis_data/")) 
+```
+
+Install and load the ggplot2 package:
+
+```{r}
+if (!require("ggplot2", quietly = TRUE))
+    install.packages("ggplot2")
+
+library("ggplot2")
+```
+
+Load in the maftools and TCGAbiolinks package:
+
+```{r}
+# write code here
+library("maftools")
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+library("BiocManager")
+
+library("TCGAbiolinks")
+
+BiocManager::install("BioinformaticsFMRP/TCGAbiolinksGUI.data")
+BiocManager::install("BioinformaticsFMRP/TCGAbiolinks")
+```
+
+Load in your saved MAF data by reading in your clinical data, re-preparing maf_query, and then calling read.maf(). See Intro_to_MAF.Rmd if you need help.
+```{r}
+# write code here
+clinical <- read.csv("../../week5_more_clinical/analysis_data/brca_clinical_data.csv")
+
+maf_query <- GDCquery(
+    project = "TCGA-BRCA", 
+    data.category = "Simple Nucleotide Variation", 
+    access = "open", # we only have access to somatic mutations which are open access
+    data.type = "Masked Somatic Mutation", 
+    workflow.type = "Aliquot Ensemble Somatic Variant Merging and Masking"
+)
+
+GDCdownload(maf_query)
+maf <- GDCprepare(maf_query) # as long as it runs, ignore any errors
+
+maf_object <- read.maf(maf = maf, 
+                       clinicalData = clinical,
+                       isTCGA = TRUE)
+```
+
+###### (2) Oncoplots
+
+We are going to start off by making our first MAF figure using the oncoplot() function. The each column on an oncoplot represents an individual patient, and the rows represent the genes of interest. The different colors represent the different types of mutations where grey represents no mutation in that gene for that patient.
+
+Generate an oncoplot by filling in the maf argument below. Fill in the top argument with various integer arguments (e.g. 5, 10, 20, etc.) to see the genes that are mutated in the most patients. Save your plot to your week6_maf folder.
+
+```{r}
+
+oncoplot(maf = maf_object,
+         top = 10) 
+#manually exported since img save functions not working
+```
+
+Pick one of the top 10 mutated genes and Google it! What is the function of this gene? Remember, at a basic level, cancer is uncontrolled cell growth. Does your gene relate to cell growth and proliferation (division)? If so, how? 
+
+MAP3K1 is a cofactor in many signaling pathways that are implicated in sex determination (embryonic development), cell growth, cell migration, tumorigenesis, and humoral immunity. This gene affects cell growth significantly because it is a transcription factor in cell growth pathways.
+
+You can also create an oncoplot for specific genes of your choosing by passing a vector into oncoplot genes argument. Pick 5 genes to plot. Hint: the genes argument accepts a vector of strings.
+
+```{r}
+oncoplot(maf = maf_object,
+         genes = c("TP53", "MAP3K1", "GATA3", "RYR2", "TTN"))
+```
+
+What other questions might you ask based on the oncoplots created above (think about types of mutations, specific genes, specific pathways, mutual exclusivity of mutations, etc.)? Brainstorm two research questions:
+
+1. Does TP53 mutation type have an impact on the long-term survival rate of breast cancer patients?
+2. Do MAP3K1 or GATA3 mutations yield a poorer prognosis (since they seem to be mutually exclusive)?
+
+###### (3) Adding Clinical Annotations
+
+We can further customize our oncoplots by adding clinical data in the form of an annotation. Let's practice this by adding age_category to our oncoplot.
+
+```{r}
+oncoplot(maf = maf_object,
+         top = 10,
+         clinicalFeatures = "age_category")
+```
+
+Do you see any clustering between old and young patients?
+Yes, there are clusterings of certain mutations for each age group.
+
+###### (4) subsetMaf + CoOncoplots
+
+Another way to compare between patient populations is to use a coOncoplot. Before we create our coOncoplot, we first need to subset our maf_object dataframe into two separate data frames, one for old patients and one for young patients.
+
+We can do this with subsetMaf(). The subsetMaf(maf, tsb) function needs two arguments in this case: maf is the original MAF object, and tsb is a vector of patient IDs (barcodes) to select.
+
+Store the young patient barcodes in a vector called young_patient_barcodes. Hint: you can use boolean masking for this!
+
+```{r}
+
+ y_age_mask = ifelse(maf_object@clinical.data$age_at_initial_pathologic_diagnosis < 50, TRUE, FALSE)
+
+ young_patient_barcodes <- maf_object@clinical.data$Tumor_Sample_Barcode[y_age_mask]
+
+```
+
+Use the young_patient_barcode vector in the tsb argument of subsetMaf.
+
+```{r}
+young_maf <- subsetMaf(maf = maf_object,
+                       tsb = young_patient_barcodes)
+```
+
+Create an old_patient_barcode vector and use that to subset just the old patient data.
+
+```{r}
+o_age_mask <- ifelse(maf_object@clinical.data$age_at_initial_pathologic_diagnosis >= 50, TRUE, FALSE)
+
+old_patient_barcodes <- maf_object@clinical.data$Tumor_Sample_Barcode[o_age_mask] 
+  
+old_maf <- subsetMaf(maf = maf_object,
+                     tsb = old_patient_barcodes)
+```
+
+Use coOncoplot() to draw two oncoplots side by side, comparing young vs. old patients. m1 is the first MAF object to plot, and m2 is the second. Be sure to provide descriptive names in the m1Name and m2Name arguments! Again, save the plot using the ggsave() function.
+
+```{r}
+coOncoplot(m1 = young_maf, 
+           m2 = old_maf, 
+           m1Name = "Young (< 50 yo)", 
+           m2Name = "Old (>= 50 yo)")
+
+#exported manually since img save functions not working
+```
+
+Are there any genes that seem to be mutated at different rates between the two populations? If so, pick one. Can you think of any reasons why that gene might be mutated more in younger/older patients (Google it!)
+
+Chosen Gene: CDH1
+More highly mutated in young or old population: Old
+Hypothesized Reason: CDH1 mutation occurs after an extended period of replication where the gene has more opportunities to be mutated, so older patients are more likely to be afflicated with this mutation.
+
+###### (5) Lollipop Plots
+
+Lollipop plots display the location of each mutation along the gene’s DNA sequence. The x-axis of a lollipop plot is the amino acid sequence that makes up the gene. Individual mutations are annotated by a ball-and-stick, which looks like a lollipop, hence the name. The colors represents the type of mutation at a given point on the gene (similar to colors of the oncoplots), and the visualization in the middle of the plot is the gene itself differentiated between its different domain/motif sections.
+
+Let's make a lollipop plot for TP53.
+
+```{r}
+lollipopPlot(maf = maf_object,
+             gene = "TP53")
+#exported manually since img save functions not working
+```
+
+Does TP53 have any domains? If so, list them and provide a brief description of their functions.
+P53_TAD: binding of transcription factors and regulators
+P53: is translated into protein counterpart
+P53_tetramer: oligomerizes P53 (joins domains)
+
+What is the mutation rate of TP53 among all patients in our population?
+34.23%
+
+Approximately what number amino acid is the most mutated, and how many mutations are at this location?
+AA#170 with 20 misense mutations
+
+###### (6) Co-Lollipop Plots
+
+Similarly to how we created co-Oncoplots to compare the oncoplot data between two different populations, we can also create co-lollipop plots to do the same.
+
+Recreate your young_maf and old_maf objects.
+
+```{r}
+# write code here
+ y_age_mask = ifelse(maf_object@clinical.data$age_at_initial_pathologic_diagnosis < 50, TRUE, FALSE)
+
+ young_patient_barcodes <- maf_object@clinical.data$Tumor_Sample_Barcode[y_age_mask]
+ 
+ young_maf <- subsetMaf(maf = maf_object,
+                       tsb = young_patient_barcodes)
+ 
+ o_age_mask <- ifelse(maf_object@clinical.data$age_at_initial_pathologic_diagnosis >= 50, TRUE, FALSE)
+
+ old_patient_barcodes <- maf_object@clinical.data$Tumor_Sample_Barcode[o_age_mask] 
+  
+ old_maf <- subsetMaf(maf = maf_object,
+                     tsb = old_patient_barcodes)
+ 
+```
+
+Now fill in the co-lollipop plot function below. Be sure to add descriptive names for each population.
+
+```{r}
+lollipopPlot2(m1 = young_maf, 
+              m2 = old_maf, 
+              m1_name = "Young (< 50 yo)",
+              m2_name = "Old (>= 50 yo)",
+              gene = "TP53") ## pick any gene of your choosing to fill in here
+```
+
+Now, interpret your plot. For example, answer the following questions:
+
+Does it look like the gene is more commonly mutated in young or old patients?
+Young by a slight margin (4.6%)
+
+Are there more mutations in a specific region of the protein? Why might that be?
+There are two main mutation sites near the middle and terminal end of the P53 domain for both age groups. This may be because mutations in this domain cause a faulty P53 protein that can no longer function as an inhibitor of cell growth (tumor suppressor).
+
+What kinds of mutations are the most common?
+Missense mutations
+
+Are there any other interesting observations?
+It is interesting to see why the terminal end of P53 is frequently mutated for older patients. 
+
+###### (7) Survival Analysis (mafSurvival)
+
+Remember back to Kaplan-Meier survival plots (from the clinical data tutorial). These plots allow us to visualize survival probabilities stratified by different clinical factors (such as age, sex, stage, etc.)
+
+We can also visualize survival probabilities stratified by mutational status. To do this, we use mafSurvival. This is very similar to our traditional KM plots, you may want to open up the clinical data tutorial to follow along there as well.
+
+```{r}
+
+maf_object@clinical.data$survival_time = ifelse(is.na(maf_object@clinical.data$days_to_death), 
+                                                maf_object@clinical.data$days_to_last_followup,
+                                                maf_object@clinical.data$days_to_death)
+
+maf_object@clinical.data$Overall_Survival_Status = ifelse(maf_object@clinical.data$vital_status == "Dead", TRUE, FALSE)
+
+mafSurvival(maf = maf_object,
+            genes = "CDH1", ## pick a gene of your choosing
+            time = "survival_time", ## name of the column in maf_object@clinical.data containing survival time, you may need to recreate this... if so, check the clinical data tutorial for instructions
+            Status = "Overall_Survival_Status", ## name of the column that contains a boolean value for death events, you may need to recreate this... if so, check the clinical data tutorial for instructions
+            isTCGA = TRUE)
+```
+
+Provide a brief description of your chosen gene and it's posited relationship to survival.
+CDH1 codes for a key cadherin protein implicated in cell adhesion, so the loss of function of this gene via mutation can cause increased cell motility that allows cancer cells to migrate easily across the basement membrane of surrounding tissues, resulting in metastasis.
+
+What can you conclude from your plot?
+CDH1 mutation resulted in surprisingly better short-term survival outcomes but ultimately worse long-term survival outcomes for breast cancer patients. It appears that the surival rates of BC cases with CDH1 mutations steeply declines at about 4000 days. 
+
+Is this what you would expect according to the literature? Why or why not?
+Yes, because CDH1 is known to affect older patients with breast cancer so it would make sense that the survival rates drop steeply at older ages. 
+
+###### (8) Looking Ahead - VERY IMPORTANT!!
+
+Query, download, and prepare the RNA Transcriptomics data in to your R work space. Confirm that your working directory is analysis_data before you run these lines.
+
+Note that this is super slow!! Don't worry, just wait it out.
+
+```{r}
+getwd()
+rna_query <- GDCquery(project = "TCGA-BRCA",
+                      data.category = "Transcriptome Profiling",
+                      data.type = "Gene Expression Quantification",
+                      workflow.type = "STAR - Counts")
+
+GDCdownload(rna_query)
+
+rna_se <- GDCprepare(rna_query)
+```
