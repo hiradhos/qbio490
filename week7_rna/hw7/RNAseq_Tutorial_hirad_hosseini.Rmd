@@ -184,7 +184,7 @@ fruit_list <- c("peach", "pomegranate", "cherry", "apricot", "kiwi")
 
 Using your knowledge from the literature presentations, Google, etc., pick two genes that are important in breast cancer. List them below.
     ~ Gene 1: BRCA1
-    ~ Gene 2: HER2
+    ~ Gene 2: CDH1
     
 Using the %in% function, check that these two genes are in the rna_genes data. If they aren't pick a new gene. Hint: think about which column to check in.
 
