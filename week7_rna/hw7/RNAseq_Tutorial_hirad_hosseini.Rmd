@@ -291,7 +291,7 @@ boxplot(as.numeric(brca_counts[1:1112]) ~ rna_clinical$five_year_surv, # think a
 ```
 
 Does there appear to be a relationship between expression of your gene and five year survival? Is this what we would expect (do some research on the gene+survival to validate). Write a few sentence making observations about your plot, noting the significance of what this means, and any key takeaways:
-There appears to be a weak relationship between BRCA1 expression and patient five year survival rates.
+There appears to be a weak relationship between BRCA1 expression and patient five year survival rates, as both boxplots for patients who survived less than or more than 5 years are very similar and only differ in the number of outliers. Both plots have similar means and quartiles, but there are more outliers representing patients who survived less than 5 years and had significanlty higher BRCA1 counts than expected. This may mean that there is a correlation of worse prognoses for breast cancer patients with high BRCA1 expression. This finding is validated by the article: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6341769/. 
 ----
 
 Create two more gene_count lists, for MKI67 and PTGS2.
