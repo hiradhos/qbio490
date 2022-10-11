@@ -6,3 +6,4 @@ GDCdata
 MANIFEST*
 htseq_h5*
 analysis_data
+*.csv
