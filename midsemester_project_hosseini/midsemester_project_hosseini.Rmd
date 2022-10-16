@@ -1,0 +1,75 @@
+---
+title: "QBIO 490 Midsemester Project"
+author: Hirad Hosseini
+date: 10/10/2022
+---
+
+```{r setup}
+getwd()
+knitr::opts_knit$set(root.dir = normalizePath("../midsemester_project_hosseini/outputs/")) 
+```
+
+```{r}
+
+#install and load necessary libraries
+if (!require("ggplot2", quietly = TRUE))
+    install.packages("ggplot2")
+    library("ggplot2")
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+    library("BiocManager")
+if (!require("TCGAbiolinks", quietly = TRUE))
+    install.packages("TCGAbiolinks")
+    library("TCGAbiolinks")
+if (!require("maftools", quietly = TRUE))
+    install.packages("maftools")
+    library("maftools")
+if (!require("SummarizedExperiment", quietly = TRUE))
+    install.packages("SummarizedExperiment")
+    library("SummarizedExperiment")
+
+```
+
+Access, download and load clinical data for TCGA-HNSC into R dataframe (Head and Neck Squamous Cell Carcinoma dataset on TCGA).
+
+```{r}
+
+clinical_query <- GDCquery(project="TCGA-HNSC", data.category = "Clinical", file.type = "xml")
+clinical_data <- GDCdownload(clinical_query)
+clinical <- GDCprepare_clinic(query = clinical_query, clinical.info = "patient")
+
+```
+
+Save clinical df to csv in outputs for future load-ins. 
+
+```{r}
+
+write.csv(clinical, "../outputs/hnsc_clinical_data.csv", row.names = FALSE)
+
+```
+
+Query in maf files to create a maf object.
+
+```{r}
+
+maf_query <- GDCquery(
+    project = "TCGA-HNSC", 
+    data.category = "Simple Nucleotide Variation", 
+    access = "open", 
+    data.type = "Masked Somatic Mutation", 
+    workflow.type = "Aliquot Ensemble Somatic Variant Merging and Masking"
+)
+
+GDCdownload(maf_query)
+
+maf <- GDCprepare(maf_query) 
+
+colnames(clinical)[ colnames(clinical) == "bcr_patient_barcode" ] <- "Tumor_Sample_Barcode" #rename barcode column for read.maf()
+
+maf_object <- read.maf(maf = maf, 
+                       clinicalData = clinical,
+                       isTCGA = TRUE)
+```
+
+
+
