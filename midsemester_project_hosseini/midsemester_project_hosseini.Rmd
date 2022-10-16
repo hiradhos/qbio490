@@ -69,7 +69,69 @@ colnames(clinical)[ colnames(clinical) == "bcr_patient_barcode" ] <- "Tumor_Samp
 maf_object <- read.maf(maf = maf, 
                        clinicalData = clinical,
                        isTCGA = TRUE)
+
+```
+
+Query in, download, and prepare RNASeq data.
+
+```{r}
+
+rna_query <- GDCquery(project = "TCGA-HNSC",
+                      data.category = "Transcriptome Profiling",
+                      data.type = "Gene Expression Quantification",
+                      workflow.type = "STAR - Counts")
+GDCdownload(rna_query)
+rna_se <- GDCprepare(rna_query)
+
+```
+
+View details of clinical df to determine what factors to compare.
+
+```{r}
+
+head(clinical)
+unique(clinical$histological_type)
+colnames(clinical)
+unique(clinical$neoplasm_histologic_grade)
+unique(clinical$perineural_invasion_present)
+unique(clinical$lymphovascular_invasion_present)
+unique(clinical$number_of_lymphnodes_positive_by_he)
+unique(clinical$presence_of_pathological_nodal_extracapsular_spread)
+
+```
+
+View details of maf df.
+
+```{r}
+
+head(maf)
+
 ```
 
 
+
+
+
+
+```{r}
+
+head(maf)
+
+```
+
+```{r}
+
+str(rna_se)
+
+```
+
+We are mainly concerned with cancers of the upper head and neck. Therefore, we will apply a boolean mask to include only such sites.
+
+```{r}
+
+unique(clinical$anatomic_neoplasm_subdivision)
+site_mask <- ifelse(clinical$anatomic_neoplasm_subdivision == "Larynx" | clinical$anatomic_neoplasm_subdivision == "Hypopharynx" | clinical$anatomic_neoplasm_subdivision == "Lip", F, T)
+clinical <- clinical[site_mask, ]
+
+```
 
