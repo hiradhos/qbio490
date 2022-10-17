@@ -26,7 +26,16 @@ if (!require("maftools", quietly = TRUE))
     library("maftools")
 if (!require("SummarizedExperiment", quietly = TRUE))
     install.packages("SummarizedExperiment")
-    library("SummarizedExperiment")
+    library("SummarizedExperiment") #use for future project
+if (!require("survival", quietly = TRUE))
+    install.packages("survival")
+    library("survival")
+if (!require("survminer", quietly = TRUE))
+    install.packages("survminer")
+    library("survminer")
+if (!require("dplyr", quietly = TRUE))
+    install.packages("dplyr")
+    library("dplyr")
 
 ```
 
@@ -37,14 +46,7 @@ Access, download and load clinical data for TCGA-HNSC into R dataframe (Head and
 clinical_query <- GDCquery(project="TCGA-HNSC", data.category = "Clinical", file.type = "xml")
 clinical_data <- GDCdownload(clinical_query)
 clinical <- GDCprepare_clinic(query = clinical_query, clinical.info = "patient")
-
-```
-
-Save clinical df to csv in outputs for future load-ins. 
-
-```{r}
-
-write.csv(clinical, "../outputs/hnsc_clinical_data.csv", row.names = FALSE)
+clinical.drug <- GDCprepare_clinic(query = clinical_query, clinical.info = "drug")
 
 ```
 
@@ -72,7 +74,7 @@ maf_object <- read.maf(maf = maf,
 
 ```
 
-Query in, download, and prepare RNASeq data.
+Query in, download, and prepare RNASeq data. FOR FUTURE USE, NOT NECESSARY IN MIDTERM PROJECT.
 
 ```{r}
 
@@ -109,22 +111,6 @@ head(maf)
 ```
 
 
-
-
-
-
-```{r}
-
-head(maf)
-
-```
-
-```{r}
-
-str(rna_se)
-
-```
-
 We are mainly concerned with cancers of the upper head and neck. Therefore, we will apply a boolean mask to include only such sites.
 
 ```{r}
@@ -132,6 +118,454 @@ We are mainly concerned with cancers of the upper head and neck. Therefore, we w
 unique(clinical$anatomic_neoplasm_subdivision)
 site_mask <- ifelse(clinical$anatomic_neoplasm_subdivision == "Larynx" | clinical$anatomic_neoplasm_subdivision == "Hypopharynx" | clinical$anatomic_neoplasm_subdivision == "Lip", F, T)
 clinical <- clinical[site_mask, ]
+
+```
+
+Let's compare survival outcomes for HNSC patients with and without perineural invasion. We must first apply a mask to create df's for patients with and without perineural invasion.
+
+```{r}
+
+peri_inv_mask <- ifelse(clinical$perineural_invasion_present == "YES", T, F)
+whitespace_mask <- ifelse(clinical$perineural_invasion_present == "", F, T) #eliminates rows with whitespace entry to denote NA
+clinical <- clinical[whitespace_mask, ]
+unique(clinical$perineural_invasion_present) #only yes and no responses remain
+
+sum(peri_inv_mask) #147
+peri_inv_clinical <- clinical[peri_inv_mask, ]
+dim(peri_inv_clinical) #dim of 147 --> match
+no_peri_inv_clinical <- clinical[peri_inv_mask == F, ]
+
+
+nrow(clinical) == nrow(peri_inv_clinical) + nrow(no_peri_inv_clinical) #checks if we properly masked the df
+
+```
+
+Let's see if there is a relationship between lymph node positivity and the presence of perineural invasion. 
+
+```{r}
+
+unique(clinical$stage_event_pathologic_stage)
+jpeg(filename = "../outputs/boxplot.jpeg")
+boxplot(clinical$perineural_invasion_present, clinical$number_of_lymphnodes_positive_by_he, xlab = "Presence of Perineural Invasion", ylab= "# Lymph Nodes + by Histological Examination", main = "Relation between Perineural Invasion Status and Lymph Node Positivity")
+while (!is.null(dev.list()))  dev.off()
+
+
+```
+
+Let's see if there is a relationship between the pathologic stage of the tumor and if the sample was associated with perineural invasion. 
+
+```{r}
+jpeg(filename = "../outputs/histogram.jpeg")
+g <- ggplot(clinical, aes(x=clinical$perineural_invasion_present, fill=clinical$stage_event_pathologic_stage)) + geom_bar(position="dodge") #construct histogram
+g + ggtitle("Relation between Perineural Invasion Status and Pathologic Staging of Tumor") + xlab("Perineural Invasion Status") + ylab("Count") #set axis titles
+g + scale_fill_discrete(name="Pathologic Stage Classification", labels = c("No Classification", "Stage I", "Stage II", "Stage III", "Stage IVA", "Stage IVB")) #set legend title and labels
+while (!is.null(dev.list()))  dev.off()
+
+```
+
+We will now create a Kaplan-Meier (KM) plot comparing survival rates of patients depending on their perineural invasion status. First, we must create two columns "survival_time" and "death_event" in order to construct our survival object. 
+
+```{r}
+
+clinical$survival_time <- ifelse(is.na(clinical$days_to_death),clinical$days_to_last_followup,clinical$days_to_death)
+unique(clinical$survival_time) #contains some NA values 
+surv_na_mask <- ifelse(is.na(clinical$survival_time), F, T)
+na_text_mask <- ifelse(clinical$survival_time == "NA", F, T)
+surv_inf_mask <- ifelse(is.infinite(clinical$survival_time), F, T)
+clinical <- clinical[surv_na_mask,]
+clinical <- clinical[na_text_mask,]
+clinical <- clinical[surv_inf_mask,]
+
+clinical$death_event <- ifelse(is.na(clinical$days_to_death), F, T)
+unique(clinical$death_event)
+na_text_mask2 <- ifelse(is.na(clinical$death_event), F, T)
+clinical <- clinical[na_text_mask2,]
+
+unique(clinical$perineural_invasion_present) #contains NAs, apply boolean mask
+clinical <- clinical[ifelse(is.na(clinical$perineural_invasion_present) == T, F, T),  ]
+
+
+```
+
+
+
+```{r}
+
+# Initialize a 'survival' object, which contains the data we need.
+surv_object_peri_inv <- Surv(time = clinical$survival_time,
+                    event = clinical$death_event)
+# Create a fit object
+# When writing formulas (x ~ y), x is what's being plotted and y is what is grouping x into categories
+peri_inv_fit <- surv_fit(surv_object_peri_inv ~ clinical$perineural_invasion_present,
+                     data = clinical )
+
+# the ggtheme and legend arguments are for formatting. 
+# Feel free to play around with the margins and legend placement
+survplot_peri_inv = ggsurvplot(peri_inv_fit, 
+           pval=TRUE, 
+           ggtheme = theme(plot.margin = unit(c(1,1,1,1), "cm")), 
+           legend = "right")
+
+# when you create plots on your own, be sure to name them descriptively
+KM_plot_peri_inv = survplot_peri_inv$plot + 
+  theme_bw() +  # changes the appearance to be a bit prettier
+  theme(axis.title = element_text(size=20), # increase font sizes
+        axis.text = element_text(size=16),
+        legend.title = element_text(size=14),
+        legend.text = element_text(size=12))
+
+jpeg(filename = "../outputs/KMplot.jpeg") #saves KM plot to outputs file
+KM_plot_peri_inv
+while (!is.null(dev.list()))  dev.off()
+
+
+```
+
+Creating an oncoplot showing the top 10 genes implicated in HNSC patients, clinically annotated with perineural invasion status. 
+
+```{r}
+
+jpeg(filename ="../outputs/oncoplot.jpeg")
+oncoplot(maf = maf_object,
+         top= 10,
+         clinicalFeatures = "perineural_invasion_present"
+         ) 
+while (!is.null(dev.list()))  dev.off()
+
+```
+
+Next, we can create a co-oncoplot comparing gene mutation compositions of patients with and without perineural invasion. 
+
+```{r}
+
+#subsetting our MAF object into two MAF objects composed of patients with or without perineural invasion
+ y_inv_mask = ifelse(maf_object@clinical.data$perineural_invasion_present == "YES", TRUE, FALSE)
+
+ y_inv_patient_barcodes <- maf_object@clinical.data$Tumor_Sample_Barcode[y_inv_mask]
+ 
+ n_inv_mask = ifelse(maf_object@clinical.data$perineural_invasion_present == "NO", TRUE, FALSE)
+ 
+ n_inv_patient_barcodes <- maf_object@clinical.data$Tumor_Sample_Barcode[n_inv_mask]
+ 
+ y_inv_maf <- subsetMaf(maf = maf_object,
+                       tsb = y_inv_patient_barcodes)
+ 
+ n_inv_maf <- subsetMaf(maf = maf_object, 
+                        tsb = n_inv_patient_barcodes)
+```
+
+```{r}
+
+jpeg(filename = "../outputs/co_oncoplot.jpeg")
+coOncoplot(m1 = y_inv_maf, 
+           m2 = n_inv_maf, 
+           m1Name = "Perineural Invasion Present", 
+           m2Name = "No Perineural Invasion")
+while (!is.null(dev.list()))  dev.off()
+
+
+```
+
+Using the same subsetted MAF objects for presence and absence of perineural invasion, we can construct co-lollipop plots comparing mutation sites with significantly different prevalences among these two categories: TP53, NOTCH1, LRP1B, MUC16.
+
+```{r}
+
+jpeg(filename = "../outputs/tp53_lolli.jpeg")
+
+lollipopPlot2(m1 = y_inv_maf, 
+              m2 = n_inv_maf, 
+              m1_name = "Perineural Invasion Present",
+              m2_name = "No Perineural Invasion",
+              gene = "TP53") ## pick any gene of your choosing to fill in here
+while (!is.null(dev.list()))  dev.off()
+
+jpeg(filename = "../outputs/notch1_lolli.jpeg")
+
+lollipopPlot2(m1 = y_inv_maf, 
+              m2 = n_inv_maf, 
+              m1_name = "Perineural Invasion Present",
+              m2_name = "No Perineural Invasion",
+              gene = "NOTCH1") ## pick any gene of your choosing to fill in here
+while (!is.null(dev.list()))  dev.off()
+
+jpeg(filename = "../outputs/lrp1b_lolli.jpeg")
+
+lollipopPlot2(m1 = y_inv_maf, 
+              m2 = n_inv_maf, 
+              m1_name = "Perineural Invasion Present",
+              m2_name = "No Perineural Invasion",
+              gene = "LRP1B") ## pick any gene of your choosing to fill in here
+while (!is.null(dev.list()))  dev.off()
+
+jpeg(filename = "../outputs/muc16_lolli.jpeg")
+
+lollipopPlot2(m1 = y_inv_maf, 
+              m2 = n_inv_maf, 
+              m1_name = "Perineural Invasion Present",
+              m2_name = "No Perineural Invasion",
+              gene = "MUC16") ## pick any gene of your choosing to fill in here
+while (!is.null(dev.list()))  dev.off()
+
+
+```
+Let's compare gene pairs among the top 25 most expressed genes in order to find genes with statistically significant co-occurence or mutually exclusivtiy. 
+
+```{r}
+
+jpeg(filename = "../outputs/maf_somatic.jpeg")
+
+somaticInteractions(maf = maf_object,
+                    top = 25,
+                    pvalue = c(0.05, 0.1))
+while (!is.null(dev.list()))  dev.off()
+
+jpeg(filename = "../outputs/y_inv_somatic.jpeg")
+
+somaticInteractions(maf = y_inv_maf,
+                    top = 25,
+                    pvalue = c(0.05, 0.1))
+while (!is.null(dev.list()))  dev.off()
+
+jpeg(filename = "../outputs/n_inv_somatic.jpeg")
+
+somaticInteractions(maf = n_inv_maf,
+                    top = 25,
+                    pvalue = c(0.05, 0.1))
+while (!is.null(dev.list()))  dev.off()
+
+
+```
+Let's compare the efficacy of specific drugs on patients with and without different perineural invasion status. 
+
+```{r}
+
+unique(clinical.drug$drug_name) #there are 54 drugs, we will only look at the top 10
+desired_mask <- ifelse(clinical.drug$therapy_types == "Chemotherapy", T, F) #subset so we only look at chemotherapy drugs
+clinical.drug <- clinical.drug[desired_mask, ]
+
+```
+
+```{r}
+
+counts <- count(clinical.drug,vars=  drug_name) #count the number of times each drug is used
+counts
+ordered_counts <- counts[order(counts$n),]
+ordered_counts #order counts to obtain top 3 drugs administered, GO TO BACK OF TABLE
+top_drugs = c("Cisplatin", "Carboplatin", "Paclitaxel")
+top_frequency = ordered_counts[ordered_counts$vars %in% top_drugs,]
+top_frequency
+
+#merge clinical and clinical.drug df's using patient ID as common column; needed to visualize using ggplot
+colnames(clinical)
+colnames(clinical.drug)
+clinical.drug$bcr_patient_barcode
+clinical$Tumor_Sample_Barcode
+
+total_clinical <- merge (clinical, clinical.drug, by.x = 'Tumor_Sample_Barcode', by.y ='bcr_patient_barcode')
+
+modified_clinical <- droplevels(total_clinical[total_clinical$drug_name %in% top_drugs,]) #filters df to include only T3 drugs
+modified_clinical$drug_name
+modified_clinical$drug_name <- tolower(modified_clinical$drug_name)
+modified_clinical <- modified_clinical[ifelse(is.na(modified_clinical$drug_name) == TRUE | modified_clinical$drug_name == "", F, T),]
+
+```
+
+
+Construct another KM plot but this time it is based on the drug utilized.
+
+```{r}
+
+modified_clinical$survival_time <- ifelse(is.na(modified_clinical$days_to_death),modified_clinical$days_to_last_followup,modified_clinical$days_to_death)
+unique(modified_clinical$survival_time) #contains some NA values 
+surv_na_mask <- ifelse(is.na(modified_clinical$survival_time), F, T)
+na_text_mask <- ifelse(modified_clinical$survival_time == "NA", F, T)
+surv_inf_mask <- ifelse(is.infinite(modified_clinical$survival_time), F, T)
+modified_clinical <- modified_clinical[surv_na_mask,] #removes NA values
+modified_clinical <- modified_clinical[na_text_mask,] #removes "NA" text values
+modified_clinical <- modified_clinical[surv_inf_mask,] #removes infinity values
+
+modified_clinical$death_event <- ifelse(is.na(modified_clinical$days_to_death), F, T)
+unique(modified_clinical$death_event)
+na_text_mask2 <- ifelse(is.na(modified_clinical$death_event), F, T)
+modified_clinical <- modified_clinical[na_text_mask2,]
+
+surv_object_age <- Surv(time = modified_clinical$survival_time,
+                        event = modified_clinical$death_event)
+
+drug_fit <- surv_fit(surv_object_age ~ modified_clinical$drug_name,
+                    data = modified_clinical)
+survplot_drug = ggsurvplot(drug_fit,
+                          pval=TRUE, 
+                          ggtheme = theme(plot.margin = unit(c(1,1,1,1), "cm")), 
+                          legend = "right")
+KM_plot_drug = survplot_drug$plot + 
+  theme_bw() +  
+  theme(axis.title = element_text(size=20), 
+        axis.text = element_text(size=16),
+        legend.title = element_text(size=8),
+        legend.text = element_text(size=6))
+jpeg(filename = "../outputs/km_overall_drug.jpeg")
+KM_plot_drug
+while (!is.null(dev.list()))  dev.off()
+
+
+```
+
+Let's compare this KM plot to that of patients who only had perineural invasion.
+
+```{r}
+
+unique(clinical.drug$drug_name) #there are 54 drugs, we will only look at the top 10
+desired_mask <- ifelse(clinical.drug$therapy_types == "Chemotherapy", T, F) #subset so we only look at chemotherapy drugs
+clinical.drug <- clinical.drug[desired_mask, ]
+
+```
+
+```{r}
+
+counts <- count(clinical.drug,vars=  drug_name) #count the number of times each drug is used
+counts
+ordered_counts <- counts[order(counts$n),]
+ordered_counts #order counts to obtain top 3 drugs administered, GO TO BACK OF TABLE
+top_drugs = c("Cisplatin", "Carboplatin", "Paclitaxel")
+top_frequency = ordered_counts[ordered_counts$vars %in% top_drugs,]
+top_frequency
+
+#merge clinical and clinical.drug df's using patient ID as common column; needed to visualize using ggplot
+colnames(clinical)
+colnames(clinical.drug)
+clinical.drug$bcr_patient_barcode
+clinical$Tumor_Sample_Barcode
+
+total_clinical <- merge (clinical, clinical.drug, by.x = 'Tumor_Sample_Barcode', by.y ='bcr_patient_barcode')
+
+modified_clinical <- droplevels(total_clinical[total_clinical$drug_name %in% top_drugs,]) #filters df to include only T3 drugs
+modified_clinical$drug_name
+modified_clinical$drug_name <- tolower(modified_clinical$drug_name)
+modified_clinical <- modified_clinical[ifelse(is.na(modified_clinical$drug_name) == TRUE | modified_clinical$drug_name == "" | modified_clinical$perineural_invasion_present == "NO" | modified_clinical$perineural_invasion_present == "", F, T),]
+
+```
+
+```{r}
+
+modified_clinical$survival_time <- ifelse(is.na(modified_clinical$days_to_death),modified_clinical$days_to_last_followup,modified_clinical$days_to_death)
+unique(modified_clinical$survival_time) #contains some NA values 
+surv_na_mask <- ifelse(is.na(modified_clinical$survival_time), F, T)
+na_text_mask <- ifelse(modified_clinical$survival_time == "NA", F, T)
+surv_inf_mask <- ifelse(is.infinite(modified_clinical$survival_time), F, T)
+modified_clinical <- modified_clinical[surv_na_mask,] #removes NA values
+modified_clinical <- modified_clinical[na_text_mask,] #removes "NA" text values
+modified_clinical <- modified_clinical[surv_inf_mask,] #removes infinity values
+
+modified_clinical$death_event <- ifelse(is.na(modified_clinical$days_to_death), F, T)
+unique(modified_clinical$death_event)
+na_text_mask2 <- ifelse(is.na(modified_clinical$death_event), F, T)
+modified_clinical <- modified_clinical[na_text_mask2,]
+
+surv_object_age <- Surv(time = modified_clinical$survival_time,
+                        event = modified_clinical$death_event)
+
+drug_fit <- surv_fit(surv_object_age ~ modified_clinical$drug_name,
+                    data = modified_clinical)
+survplot_drug = ggsurvplot(drug_fit,
+                          pval=TRUE, 
+                          ggtheme = theme(plot.margin = unit(c(1,1,1,1), "cm")), 
+                          legend = "right")
+KM_plot_drug_peri = survplot_drug$plot + 
+  theme_bw() +  
+  theme(axis.title = element_text(size=20), 
+        axis.text = element_text(size=16),
+        legend.title = element_text(size=8),
+        legend.text = element_text(size=6))
+jpeg(filename = "../outputs/KM_peri.jpeg")
+KM_plot_drug_peri
+while (!is.null(dev.list()))  dev.off()
+
+
+```
+
+Let's compare this KM plot to that of patients who did NOT have perineural invasion.
+
+```{r}
+
+unique(clinical.drug$drug_name) #there are 54 drugs, we will only look at the top 10
+desired_mask <- ifelse(clinical.drug$therapy_types == "Chemotherapy", T, F) #subset so we only look at chemotherapy drugs
+clinical.drug <- clinical.drug[desired_mask, ]
+
+```
+
+
+```{r}
+
+counts <- count(clinical.drug,vars=  drug_name) #count the number of times each drug is used
+counts
+ordered_counts <- counts[order(counts$n),]
+ordered_counts #order counts to obtain top 3 drugs administered, GO TO BACK OF TABLE
+top_drugs = c("Cisplatin", "Carboplatin", "Paclitaxel")
+top_frequency = ordered_counts[ordered_counts$vars %in% top_drugs,]
+top_frequency
+
+#merge clinical and clinical.drug df's using patient ID as common column; needed to visualize using ggplot
+colnames(clinical)
+colnames(clinical.drug)
+clinical.drug$bcr_patient_barcode
+clinical$Tumor_Sample_Barcode
+
+total_clinical <- merge (clinical, clinical.drug, by.x = 'Tumor_Sample_Barcode', by.y ='bcr_patient_barcode')
+
+modified_clinical <- droplevels(total_clinical[total_clinical$drug_name %in% top_drugs,]) #filters df to include only T3 drugs
+modified_clinical$drug_name
+modified_clinical$drug_name <- tolower(modified_clinical$drug_name)
+modified_clinical <- modified_clinical[ifelse(is.na(modified_clinical$drug_name) == TRUE | modified_clinical$drug_name == "" | modified_clinical$perineural_invasion_present == "YES" | modified_clinical$perineural_invasion_present == "", F, T),]
+
+```
+
+```{r}
+
+modified_clinical$survival_time <- ifelse(is.na(modified_clinical$days_to_death),modified_clinical$days_to_last_followup,modified_clinical$days_to_death)
+unique(modified_clinical$survival_time) #contains some NA values 
+surv_na_mask <- ifelse(is.na(modified_clinical$survival_time), F, T)
+na_text_mask <- ifelse(modified_clinical$survival_time == "NA", F, T)
+surv_inf_mask <- ifelse(is.infinite(modified_clinical$survival_time), F, T)
+modified_clinical <- modified_clinical[surv_na_mask,] #removes NA values
+modified_clinical <- modified_clinical[na_text_mask,] #removes "NA" text values
+modified_clinical <- modified_clinical[surv_inf_mask,] #removes infinity values
+
+modified_clinical$death_event <- ifelse(is.na(modified_clinical$days_to_death), F, T)
+unique(modified_clinical$death_event)
+na_text_mask2 <- ifelse(is.na(modified_clinical$death_event), F, T)
+modified_clinical <- modified_clinical[na_text_mask2,]
+
+surv_object_age <- Surv(time = modified_clinical$survival_time,
+                        event = modified_clinical$death_event)
+
+drug_fit <- surv_fit(surv_object_age ~ modified_clinical$drug_name,
+                    data = modified_clinical)
+survplot_drug = ggsurvplot(drug_fit,
+                          pval=TRUE, 
+                          ggtheme = theme(plot.margin = unit(c(1,1,1,1), "cm")), 
+                          legend = "right")
+KM_plot_drug_no_peri = survplot_drug$plot + 
+  theme_bw() +  
+  theme(axis.title = element_text(size=20), 
+        axis.text = element_text(size=16),
+        legend.title = element_text(size=8),
+        legend.text = element_text(size=6))
+jpeg(filename = "../outputs/KM_no_peri.jpeg")
+KM_plot_drug_no_peri
+while (!is.null(dev.list()))  dev.off()
+
+
+```
+
+Export all relevant df's to csv.
+
+```{r}
+
+write.csv(clinical, "../outputs/hnsc_clinical.csv")
+write.csv(maf, "../outputs/hnsc_genes.csv")
+write.csv(rna_query, "../outputs/hnsc_rna_query.csv")
+
 
 ```
 
